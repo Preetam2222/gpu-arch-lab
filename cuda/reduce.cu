@@ -131,8 +131,11 @@ int main(int argc, char** argv) {
     std::printf("  baseline %.3f ms  %.1f GB/s\n", t_base, big * 4.0 / (t_base * 1e6));
     std::printf("  shuffle  %.3f ms  %.1f GB/s   (%.2fx)\n", t_shfl, big * 4.0 / (t_shfl * 1e6),
                 t_base / t_shfl);
+    int clk_khz = 0, bus_bits = 0;  // cudaDeviceProp::memoryClockRate was removed in CUDA 13
+    CUDA_CHECK(cudaDeviceGetAttribute(&clk_khz, cudaDevAttrMemoryClockRate, 0));
+    CUDA_CHECK(cudaDeviceGetAttribute(&bus_bits, cudaDevAttrGlobalMemoryBusWidth, 0));
     std::printf("  (peak DRAM bandwidth on this GPU ~ %.0f GB/s)\n",
-                2.0 * p.memoryClockRate * (p.memoryBusWidth / 8) / 1e6);
+                2.0 * clk_khz * (bus_bits / 8) / 1e6);
 
     std::printf(ok ? "ALL PASS\n" : "FAILED\n");
     return ok ? 0 : 1;
