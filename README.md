@@ -43,15 +43,23 @@ Simulator CLI: `cachesim --l1 32K:8:64 --l2 256K:8:64 --policy lru < trace.txt`
 
 ## Status
 
-- C++ and Python: built and tested here (78 pass).
-- CUDA: compiles clean for sm_80 and sm_90 (clang + ptxas: no warnings, 0 spills), logic verified by
-  emulation. **Not yet run on a GPU.** Run it (Colab T4 works) and paste real numbers below.
+- C++ and Python: built and tested (78 pass).
+- CUDA: all correctness checks pass on a Tesla T4 (Google Colab, sm_75); also compiles clean for
+  sm_80 and sm_90.
 
-### GPU results (fill in)
+### GPU results (Tesla T4, sm_75, Colab)
 
 | GPU | matmul naive | matmul tiled | reduce baseline | reduce shuffle |
 |---|---|---|---|---|
-| | | | | |
+| Tesla T4 | 5.543 ms, 387.5 GFLOP/s | 2.893 ms, 742.3 GFLOP/s (1.9x) | 1.339 ms, 50.1 GB/s | 0.249 ms, 269.4 GB/s (5.4x) |
+
+Matmul: fp32, 1024x1024x1024. Reduce: 2^24 floats (67 MB). Single run each, so treat the
+numbers as approximate.
+
+- Shuffle reduction reaches about 84% of the T4's ~320 GB/s peak DRAM bandwidth, so it is
+  close to memory-bound.
+- Tiled matmul is about 9% of the T4's fp32 peak (~8 TFLOP/s). Register tiling and vectorized
+  loads would be the next steps; it is not competitive with cuBLAS.
 
 ## Talking points (only claim what you can explain)
 
@@ -59,4 +67,5 @@ Simulator CLI: `cachesim --l1 32K:8:64 --l2 256K:8:64 --policy lru < trace.txt`
 - `Bs[k][tx]` reads are stride-1 across a warp (no bank conflict); `As[ty][k]` is a broadcast.
 - Baseline reduction: `tid % (2*s)` leaves scattered active lanes (divergence) and needs many passes;
   shuffle reduces in registers with no barriers, so it is bandwidth-bound.
-- Float sums are order-dependent, so tests use a relative tolerance against a double CPU sum.
+- Float sums are order-dependent, so tests use an error scaled by sum|a*b| (matmul) or a relative
+  tolerance (reduce) against a double-precision CPU reference.
