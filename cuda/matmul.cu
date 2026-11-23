@@ -54,16 +54,22 @@ __global__ void matmul_tiled(const float* A, const float* B, float* C, int M, in
 
 // ---- host ----
 
-// Max relative error over a sample of output rows against a double-precision CPU reference.
+// Max error over a sample of output rows against a double-precision CPU reference,
+// scaled by sum|a*b| (the standard dot-product error scale). Dividing by |ref| alone is wrong
+// for zero-mean data: ref can be ~0 while fp32 rounding error is not.
 static double check(const std::vector<float>& A, const std::vector<float>& B,
                     const std::vector<float>& C, int M, int N, int K) {
     double worst = 0;
     int step = M > 64 ? M / 64 : 1;  // sample ~64 rows (all rows when small)
     for (int i = 0; i < M; i += step) {
         for (int j = 0; j < N; ++j) {
-            double ref = 0;
-            for (int k = 0; k < K; ++k) ref += (double)A[(size_t)i * K + k] * B[(size_t)k * N + j];
-            double err = std::fabs(C[(size_t)i * N + j] - ref) / (std::fabs(ref) + 1e-6);
+            double ref = 0, mag = 0;
+            for (int k = 0; k < K; ++k) {
+                double p = (double)A[(size_t)i * K + k] * B[(size_t)k * N + j];
+                ref += p;
+                mag += std::fabs(p);
+            }
+            double err = std::fabs(C[(size_t)i * N + j] - ref) / (mag + 1e-12);
             worst = err > worst ? err : worst;
         }
     }
@@ -92,9 +98,9 @@ static bool run_case(int M, int N, int K, bool report_perf) {
         CUDA_CHECK(cudaGetLastError());
         CUDA_CHECK(cudaMemcpy(hC.data(), dC, hC.size() * 4, cudaMemcpyDeviceToHost));
         double err = check(hA, hB, hC, M, N, K);
-        bool pass = err < 1e-3;
+        bool pass = err < 1e-4;  // fp32 bound ~ K*eps = 6e-5 at K=1024
         ok &= pass;
-        std::printf("  %-5s %dx%dx%d  max rel err %.2e  %s", v.name, M, N, K, err, pass ? "PASS" : "FAIL");
+        std::printf("  %-5s %dx%dx%d  scaled err %.2e  %s", v.name, M, N, K, err, pass ? "PASS" : "FAIL");
         if (report_perf) {
             float ms = time_ms([&] { v.kernel<<<grid, block>>>(dA, dB, dC, M, N, K); });
             std::printf("   %.3f ms  %.1f GFLOP/s", ms, 2.0 * M * N * K / (ms * 1e6));
